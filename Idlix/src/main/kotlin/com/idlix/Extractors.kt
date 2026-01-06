@@ -12,45 +12,42 @@ open class Jeniusplay : ExtractorApi() {
     override val requiresReferer = true
 
     override suspend fun getUrl(
-            url: String,
-            referer: String?,
-            subtitleCallback: (SubtitleFile) -> Unit,
-            callback: (ExtractorLink) -> Unit
-    ) {
-        val document = app.get(url, referer = "$mainUrl/").document
-        val hash = url.split("/").last().substringAfter("data=")
+    url: String,
+    referer: String?,
+    subtitleCallback: (SubtitleFile) -> Unit,
+    callback: (ExtractorLink) -> Unit
+) {
+    val document = app.get(url, referer = "$mainUrl/").document
+    val hash = url.substringAfter("data=").substringBefore("&")
 
-        val m3uLink =
-                app.post(
-                                url = "$mainUrl/player/index.php?data=$hash&do=getVideo",
-                                data = mapOf("hash" to hash, "r" to "$referer"),
-                                referer = url,
-                                headers = mapOf("X-Requested-With" to "XMLHttpRequest")
-                        )
-                        .parsed<ResponseSource>()
-                        .videoSource
+    val m3uLink = app.post(
+        url = "$mainUrl/player/index.php?data=$hash&do=getVideo",
+        data = mapOf("hash" to hash, "r" to "$referer"),
+        referer = url,
+        headers = mapOf("X-Requested-With" to "XMLHttpRequest")
+    ).parsedSafe<ResponseSource>()?.videoSource ?: return
 
-        M3u8Helper.generateM3u8(
-                        this.name,
-                        m3uLink,
-                        url,
+    M3u8Helper.generateM3u8(
+        this.name,
+        m3uLink,
+        url
+    ).forEach(callback)
+
+    document.select("script").forEach { script ->
+        if (script.data().contains("eval(function(p,a,c,k,e,d)")) {
+            val subData = getAndUnpack(script.data())
+                .substringAfter("\"tracks\":[")
+                .substringBefore("],")
+
+            tryParseJson<List<Tracks>>("[$subData]")?.forEach { subtitle ->
+                subtitleCallback(
+                    SubtitleFile(getLanguage(subtitle.label ?: ""), subtitle.file)
                 )
-                .forEach(callback)
-
-        document.select("script").map { script ->
-            if (script.data().contains("eval(function(p,a,c,k,e,d)")) {
-                val subData =
-                        getAndUnpack(script.data())
-                                .substringAfter("\"tracks\":[")
-                                .substringBefore("],")
-                tryParseJson<List<Tracks>>("[$subData]")?.map { subtitle ->
-                    subtitleCallback.invoke(
-                            SubtitleFile(getLanguage(subtitle.label ?: ""), subtitle.file)
-                    )
-                }
             }
         }
     }
+}
+
 
     private fun getLanguage(str: String): String {
         return when {
