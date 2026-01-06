@@ -207,61 +207,54 @@ class Idlix : MainAPI() {
     }
 
     override suspend fun loadLinks(
-            data: String,
-            isCasting: Boolean,
-            subtitleCallback: (SubtitleFile) -> Unit,
-            callback: (ExtractorLink) -> Unit
-    ): Boolean {
-        val document = app.get(data).document
-        directUrl = getBaseUrl(document.location())
+    data: String,
+    isCasting: Boolean,
+    subtitleCallback: (SubtitleFile) -> Unit,
+    callback: (ExtractorLink) -> Unit
+): Boolean {
 
-        document.select("ul#playeroptionsul > li")
-                .map { Triple(it.attr("data-post"), it.attr("data-nume"), it.attr("data-type")) }
-                .amap { (id, nume, type) ->
-                    try {
-                        val json =
-                                app.post(
-                                                url = "$directUrl/wp-admin/admin-ajax.php",
-                                                data =
-                                                        mapOf(
-                                                                "action" to "doo_player_ajax",
-                                                                "post" to id,
-                                                                "nume" to nume,
-                                                                "type" to type
-                                                        ),
-                                                referer = data,
-                                                headers =
-                                                        mapOf(
-                                                                "Accept" to "*/*",
-                                                                "X-Requested-With" to
-                                                                        "XMLHttpRequest"
-                                                        )
-                                        )
-                                        .parsedSafe<ResponseHash>()
-                                        ?: return@amap
+    val document = app.get(data).document
+    directUrl = getBaseUrl(document.location())
 
-                        val password = createKey(json.key, json.embedurl)
-                        val decrypted = CryptoJsAes.decrypt(json.embedurl, password) ?: return@amap
+    document.select("ul#playeroptionsul > li")
+        .map { Triple(it.attr("data-post"), it.attr("data-nume"), it.attr("data-type")) }
+        .amap { (id, nume, type) ->
+            try {
+                val json = app.post(
+                    url = "$directUrl/wp-admin/admin-ajax.php",
+                    data = mapOf(
+                        "action" to "doo_player_ajax",
+                        "post" to id,
+                        "nume" to nume,
+                        "type" to type
+                    ),
+                    referer = data,
+                    headers = mapOf(
+                        "Accept" to "*/*",
+                        "X-Requested-With" to "XMLHttpRequest"
+                    )
+                ).parsedSafe<ResponseHash>() ?: return@amap
 
-                        val embedJson =
-                                AppUtils.tryParseJson<Map<String, String>>(decrypted as String?)
-                                        ?: return@amap
-                        val hash = embedJson["m"]?.split("/")?.last() ?: return@amap
+                val password = createKey(json.key, json.embedurl)
+                val decrypted = CryptoJsAes.decrypt(json.embedurl, password) ?: return@amap
+                val embedJson = AppUtils.tryParseJson<Map<String, String>>(decrypted as String?) ?: return@amap
+                val hash = embedJson["m"]?.split("/")?.last() ?: return@amap
 
-                        getUrl(
-                                url =
-                                        "https://jeniusplay.com/player/index.php?data=$hash&do=getVideo",
-                                referer = directUrl,
-                                subtitleCallback = subtitleCallback,
-                                callback = callback
-                        )
-                    } catch (e: Exception) {
-                        println("Error processing player: ${e.message}")
-                    }
-                }
+                loadExtractor(
+                    url = "https://jeniusplay.com/player/index.php?data=$hash&do=getVideo",
+                    referer = directUrl,
+                    subtitleCallback = subtitleCallback,
+                    callback = callback
+                )
 
-        return true
-    }
+            } catch (e: Exception) {
+                println("Error processing player: ${e.message}")
+            }
+        }
+
+    return true
+}
+
 
     /** FUNGSI CREATEKEY VERSI FIXED */
     private fun createKey(r: String, m: String): String {
